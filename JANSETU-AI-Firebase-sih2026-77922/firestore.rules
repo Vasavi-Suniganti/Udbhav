@@ -1,0 +1,160 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null; }
+    function isSelf(userId) { return signedIn() && request.auth.uid == userId; }
+    function isAdmin() {
+      return signedIn() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['PLATFORM_ADMIN', 'SUPER_ADMIN'];
+    }
+    function hasRole(roles) {
+      return signedIn() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in roles;
+    }
+    function isIndustryRole(role) { return role in ['INDUSTRY_PARTNER', 'PARTNER', 'STARTUP', 'MSME', 'CSR_PARTNER', 'RESEARCH_LAB', 'MENTOR']; }
+    function isGovernmentRole(role) { return role in ['PANCHAYAT_OFFICER', 'ULB_OFFICER', 'DISTRICT_OFFICER', 'GOVERNMENT_OFFICER', 'DEPARTMENT_ADMIN', 'PROJECT_OFFICER']; }
+    function userUniversityId() {
+      let userData = get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+      return signedIn() ? userData.get('organizationId', userData.get('organization_id', null)) : null;
+    }
+    function userOrganizationId() {
+      let userData = get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+      return userData.get('organizationId', userData.get('organization_id', request.auth.uid));
+    }
+    function sameUniversity(data) { return signedIn() && data.universityId == userUniversityId(); }
+    function isGovernment() { return hasRole(['PANCHAYAT_OFFICER', 'ULB_OFFICER', 'DISTRICT_OFFICER', 'GOVERNMENT_OFFICER', 'DEPARTMENT_ADMIN', 'PROJECT_OFFICER', 'FINANCE_OFFICER', 'ANALYTICS_OFFICER']); }
+    function canReadPublic() { return resource.data.visibility == 'PUBLIC' || resource.data.public == true; }
+    function ownedByUser() { return signedIn() && (resource.data.ownerId == request.auth.uid || resource.data.userId == request.auth.uid || resource.data.submittedBy == request.auth.uid || resource.data.authorId == request.auth.uid); }
+
+    match /users/{userId} {
+      allow create: if isSelf(userId);
+      allow read: if isSelf(userId) || isAdmin()
+        || hasRole(['PANCHAYAT_OFFICER', 'ULB_OFFICER', 'DISTRICT_OFFICER', 'GOVERNMENT_OFFICER', 'DEPARTMENT_ADMIN', 'PROJECT_OFFICER', 'FINANCE_OFFICER', 'ANALYTICS_OFFICER'])
+        || (hasRole(['UNIVERSITY_ADMIN', 'FACULTY', 'STUDENT']) && (isIndustryRole(resource.data.role) || isGovernmentRole(resource.data.role)))
+        || (hasRole(['INDUSTRY_PARTNER', 'PARTNER', 'STARTUP', 'MSME', 'CSR_PARTNER', 'RESEARCH_LAB', 'MENTOR']) && isGovernmentRole(resource.data.role));
+      allow update: if isSelf(userId) || isAdmin();
+      allow delete: if isSelf(userId) || isAdmin();
+      match /{subcollection}/{documentId} {
+        allow read, write: if isSelf(userId) || isAdmin();
+      }
+    }
+
+    match /challenges/{challengeId} {
+      allow read: if signedIn() || canReadPublic();
+      allow create: if signedIn() && request.resource.data.submittedBy == request.auth.uid;
+      allow update, delete: if isAdmin() || (signedIn() && resource.data.submittedBy == request.auth.uid);
+      match /{subcollection}/{documentId} {
+        allow read: if signedIn();
+        allow create: if signedIn() && request.resource.data.authorId == request.auth.uid || request.resource.data.userId == request.auth.uid;
+        allow update, delete: if signedIn() && (resource.data.authorId == request.auth.uid || resource.data.userId == request.auth.uid || isAdmin());
+      }
+    }
+
+    match /organizations/{documentId} { allow read: if signedIn() || canReadPublic(); allow write: if isAdmin(); }
+    match /faculty/{documentId} { allow read: if signedIn(); allow write: if isAdmin(); }
+    match /students/{documentId} { allow read: if signedIn(); allow write: if isSelf(documentId) || isAdmin(); }
+    match /facultyMentors/{mentorId} {
+      allow read: if isAdmin() || isGovernment() || sameUniversity(resource.data);
+      allow create: if isAdmin() || sameUniversity(request.resource.data);
+      allow update, delete: if isAdmin() || sameUniversity(resource.data);
+    }
+    match /teams/{teamId} {
+      allow read: if isAdmin() || isGovernment() || sameUniversity(resource.data);
+      allow create: if isAdmin() || sameUniversity(request.resource.data);
+      allow update, delete: if isAdmin() || sameUniversity(resource.data);
+    }
+    match /projects/{projectId} {
+      allow read: if isAdmin() || isGovernment() || sameUniversity(resource.data) || canReadPublic();
+      allow create: if isAdmin() || isGovernment() || sameUniversity(request.resource.data);
+      allow update, delete: if isAdmin() || isGovernment() || (sameUniversity(resource.data) && (resource.data.ownerId == request.auth.uid || resource.data.createdBy == request.auth.uid));
+      match /{subcollection}/{documentId} {
+        allow read: if signedIn();
+        allow create: if signedIn();
+        allow update, delete: if signedIn() && (isAdmin() || resource.data.ownerId == request.auth.uid || resource.data.createdBy == request.auth.uid);
+      }
+    }
+
+    match /problems/{problemId} {
+      allow read: if isAdmin()
+        || hasRole(['PANCHAYAT_OFFICER', 'ULB_OFFICER', 'DISTRICT_OFFICER', 'GOVERNMENT_OFFICER', 'DEPARTMENT_ADMIN', 'PROJECT_OFFICER', 'FINANCE_OFFICER', 'ANALYTICS_OFFICER', 'STUDENT', 'FACULTY', 'UNIVERSITY_ADMIN', 'INDUSTRY_PARTNER', 'PARTNER', 'STARTUP', 'MSME', 'CSR_PARTNER', 'RESEARCH_LAB', 'MENTOR'])
+        || (signedIn() && resource.data.public == true)
+        || (signedIn() && resource.data.createdBy == request.auth.uid);
+      allow create: if signedIn() && request.resource.data.createdBy == request.auth.uid;
+      allow update: if isAdmin()
+        || (signedIn() && resource.data.createdBy == request.auth.uid
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['voiceRecordingUrl', 'voiceStoragePath', 'updatedAt']))
+        || (hasRole(['PANCHAYAT_OFFICER', 'ULB_OFFICER', 'DISTRICT_OFFICER', 'GOVERNMENT_OFFICER', 'DEPARTMENT_ADMIN', 'PROJECT_OFFICER', 'FINANCE_OFFICER', 'ANALYTICS_OFFICER'])
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'governmentStatus', 'governmentVerificationStatus', 'governmentDepartment', 'governmentRemarks', 'governmentVerifiedBy', 'governmentVerifiedAt', 'verifiedBy', 'verifiedAt', 'clarificationRequest', 'currentStage', 'progress', 'isPublished', 'publishedAt', 'publishedBy', 'challengeStatus', 'aiRecommendedCollaboration', 'aiSuggestedUniversityDomain', 'aiSuggestedIndustryDomain', 'aiRequiredExpertise', 'aiRecommendedAction', 'aiReasoning', 'collaborationType', 'collaborationConfirmedBy', 'collaborationConfirmedAt', 'universityId', 'universityName', 'universityDepartment', 'facultyMentorId', 'facultyMentorName', 'studentTeamId', 'studentTeamName', 'industryPartnerId', 'industryPartnerName', 'industryMentorId', 'industryMentorName', 'industrySupportType', 'updatedAt']))
+        || (hasRole(['STUDENT', 'FACULTY', 'UNIVERSITY_ADMIN'])
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['universityInterest', 'universityId', 'universityName', 'universityDepartment', 'studentTeamId', 'studentTeamName', 'facultyMentorId', 'facultyMentorName', 'currentStage', 'progress', 'updatedAt']))
+        || (hasRole(['INDUSTRY_PARTNER', 'PARTNER', 'STARTUP', 'MSME', 'CSR_PARTNER', 'RESEARCH_LAB', 'MENTOR'])
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['industryInterest', 'industryPartnerId', 'industryPartnerName', 'industryMentorId', 'industryMentorName', 'industrySupportType', 'currentStage', 'progress', 'challengeStatus', 'updatedAt']));
+      allow delete: if isAdmin() || (signedIn() && resource.data.createdBy == request.auth.uid);
+
+      match /communitySignals/{signalId} {
+        allow read: if signedIn();
+        allow create: if signedIn()
+          && request.resource.data.challengeId == problemId
+          && request.resource.data.userId == request.auth.uid;
+        allow update, delete: if signedIn()
+          && resource.data.userId == request.auth.uid;
+      }
+
+      match /communityComments/{commentId} {
+        allow read: if signedIn();
+        allow create: if signedIn()
+          && request.resource.data.challengeId == problemId
+          && (request.resource.data.userId == request.auth.uid || request.resource.data.authorId == request.auth.uid);
+        allow update, delete: if signedIn()
+          && (resource.data.userId == request.auth.uid || resource.data.authorId == request.auth.uid);
+      }
+    }
+
+    match /solutions/{documentId} { allow read: if signedIn() || canReadPublic(); allow write: if signedIn(); }
+    match /solutionSubmissions/{submissionId} {
+      allow read: if signedIn();
+      allow update: if isAdmin()
+        || (isGovernment()
+          && request.resource.data.status in ['UNDER_REVIEW', 'CHANGES_REQUESTED', 'APPROVED', 'REJECTED']
+          && request.resource.data.governmentReview.reviewerId == request.auth.uid
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'governmentReview', 'reviewHistory', 'projectId', 'projectTitle', 'updatedAt']));
+      allow delete: if isAdmin() || ownedByUser();
+    }
+    match /industryCollaborations/{collaborationId} {
+      allow read: if signedIn();
+      allow update: if isAdmin()
+        || (sameUniversity(resource.data) && resource.data.ownerId == request.auth.uid)
+        || (hasRole(['INDUSTRY_PARTNER', 'PARTNER', 'STARTUP', 'MSME', 'CSR_PARTNER', 'RESEARCH_LAB', 'MENTOR'])
+          && resource.data.requestType == 'GUIDANCE'
+          && resource.data.status == 'PENDING'
+          && request.resource.data.status == 'ACCEPTED'
+          && (!('industryPartnerId' in resource.data) || resource.data.industryPartnerId == null || resource.data.industryPartnerId == userOrganizationId())
+          && request.resource.data.industryPartnerId == userOrganizationId()
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'mentorStatus', 'industryPartnerId', 'industryPartnerName', 'acceptedBy', 'acceptedAt', 'updatedAt']));
+      allow delete: if isAdmin() || (sameUniversity(resource.data) && resource.data.ownerId == request.auth.uid);
+      match /guidanceRequests/{requestId} {
+        allow read: if signedIn();
+        allow create: if signedIn();
+        allow update, delete: if isAdmin();
+      }
+    }
+    match /notifications/{documentId} {
+      function notificationOwner(data) {
+        return signedIn() && (
+          data.recipientId == request.auth.uid ||
+          data.userId == request.auth.uid ||
+          data.targetUserId == request.auth.uid ||
+          data.ownerId == request.auth.uid
+        );
+      }
+      allow read: if notificationOwner(resource.data);
+      allow create: if signedIn() && request.resource.data.recipientId is string;
+      allow update: if notificationOwner(resource.data)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read', 'isRead', 'readAt', 'updatedAt']);
+      allow delete: if notificationOwner(resource.data);
+    }
+    match /{collection}/{documentId} {
+      allow read: if signedIn();
+      allow create: if signedIn();
+      allow update, delete: if signedIn() && (isAdmin() || ownedByUser());
+    }
+  }
+}

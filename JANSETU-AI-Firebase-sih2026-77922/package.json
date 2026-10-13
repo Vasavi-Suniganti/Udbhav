@@ -1,0 +1,5 @@
+{
+  "name":"jansetu-ai-frontend-demo","private":true,"version":"4.0.0","workspaces":["apps/web","packages/shared"],
+  "scripts":{"dev":"npm run dev -w @jansetu/web","build":"npm run build -w @jansetu/shared && npm run build -w @jansetu/web","typecheck":"npm run typecheck -w @jansetu/shared && npm run typecheck -w @jansetu/web","test":"npm run test -w @jansetu/web","firebase:deploy":"npx firebase-tools deploy --only firestore:rules,firestore:indexes,storage"},
+  "devDependencies":{"typescript":"^5.9.2"}
+}

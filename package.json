@@ -1,0 +1,7 @@
+{
+  "name": "jansetu-ai-workspace",
+  "private": true,
+  "scripts": {
+    "dev": "npm run dev --prefix ./JANSETU-AI-Firebase-sih2026-77922"
+  }
+}
