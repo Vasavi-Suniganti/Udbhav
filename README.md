@@ -25,9 +25,6 @@ UDBHAV proposes a shared workflow: report a challenge with evidence and location
 
 These are application features and interfaces, not claims of production deployment or achieved impact.
 
-## Screenshots
-
-No application screenshots are included yet. Add genuine screenshots from a running instance when available.
 
 ## Technology Stack
 
@@ -103,6 +100,3 @@ Never place Firebase service-account credentials in this frontend. Firebase web 
 - The Playwright configuration references end-to-end tests that are not included in this checkout.
 - Future work could add end-to-end coverage, strengthen accessibility and localization testing, and validate workflows with participating organizations and consented data.
 
-## Credits
-
-The available project files identify the application as UDBHAV but do not name original contributors or asset authors. Add verified contributor and asset credits before publishing. No license is included.
